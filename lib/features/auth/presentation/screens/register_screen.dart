@@ -9,6 +9,8 @@ class RegisterScreen extends ConsumerStatefulWidget {
 
   @override
   ConsumerState<RegisterScreen> createState() => _RegisterScreenState();
+}
+
 class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _name = TextEditingController();
   final _phone = TextEditingController(text: '+919999999999');
