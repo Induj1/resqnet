@@ -15,5 +15,17 @@ class AppConstants {
     return dotenv.env['SUPABASE_ANON_KEY'] ?? '';
   }
 
+  static String get openAiApiKey {
+    const fromEnv = String.fromEnvironment('OPENAI_API_KEY');
+    if (fromEnv.isNotEmpty) return fromEnv;
+    return dotenv.env['OPENAI_API_KEY'] ?? '';
+  }
+
+  static String get openAiModel {
+    const fromEnv = String.fromEnvironment('OPENAI_MODEL');
+    if (fromEnv.isNotEmpty) return fromEnv;
+    return dotenv.env['OPENAI_MODEL'] ?? 'gpt-5-mini';
+  }
+
   static const emergencyRed = 0xFFFF3B30;
 }

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -7,7 +9,9 @@ import '../core/utils/geo_math.dart';
 import '../models/citizen_report.dart';
 import '../models/disaster_event.dart';
 import '../models/grid_risk_point.dart';
+import '../models/news_article.dart';
 import '../models/rescue_unit.dart';
+import '../models/social_feed_item.dart';
 import '../models/sos_report.dart';
 
 final emergencyRepositoryProvider = Provider<EmergencyRepository>((ref) {
@@ -79,14 +83,127 @@ class EmergencyRepository {
     });
   }
 
+  Stream<List<SocialFeedItem>> streamSocialFeed({
+    required double latitude,
+    required double longitude,
+    double radiusKm = 10,
+  }) {
+    return Stream.periodic(const Duration(seconds: 6)).asyncMap((_) async {
+      final list = await _api.getList(
+        '/social/feed',
+        query: {'lat': latitude, 'lng': longitude, 'radius_km': radiusKm},
+      );
+      return list
+          .map(
+            (e) => SocialFeedItem.fromMap(
+              Map<String, dynamic>.from(e as Map),
+            ),
+          )
+          .toList();
+    });
+  }
+
+  Future<Map<String, dynamic>> confirmSocialEvent({
+    required String eventId,
+    required double latitude,
+    required double longitude,
+    String? userId,
+  }) async {
+    return _api.postJson(
+      '/social/events/$eventId/confirm',
+      body: {
+        'latitude': latitude,
+        'longitude': longitude,
+        if (userId != null) 'user_id': userId,
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>> postSocialObservation({
+    required double latitude,
+    required double longitude,
+    required String disasterType,
+    required String observation,
+    String? userId,
+  }) async {
+    return _api.postJson(
+      '/social/observe',
+      body: {
+        'latitude': latitude,
+        'longitude': longitude,
+        'disaster_type': disasterType,
+        'observation': observation,
+        if (userId != null) 'user_id': userId,
+      },
+    );
+  }
+
+  Future<EventConfirmationsResponse> getEventConfirmations(String eventId) async {
+    final json = await _api.getJson('/social/events/$eventId/confirmations');
+    return EventConfirmationsResponse.fromMap(json);
+  }
+
+  Future<NewsResponse> getNews({String? disasterType}) async {
+    final json = await _api.getJson(
+      '/news',
+      query: disasterType == null ? null : {'disaster_type': disasterType},
+    );
+    return NewsResponse.fromMap(json);
+  }
+
+  Future<Map<String, dynamic>> getMediaList({
+    String? disasterType,
+    int limit = 50,
+  }) async {
+    return _api.getJson(
+      '/media/list',
+      query: {
+        'limit': limit,
+        if (disasterType != null) 'disaster_type': disasterType,
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>> uploadMedia({
+    required Uint8List bytes,
+    required String filename,
+    required double latitude,
+    required double longitude,
+    String disasterType = 'other',
+    String? reportId,
+    String? userId,
+  }) async {
+    return _api.postMultipart(
+      '/media/upload',
+      fileField: 'file',
+      fileBytes: bytes,
+      filename: filename,
+      fields: {
+        'latitude': latitude.toString(),
+        'longitude': longitude.toString(),
+        'disaster_type': disasterType,
+        if (reportId != null) 'report_id': reportId,
+        if (userId != null) 'user_id': userId,
+      },
+    );
+  }
+
   Stream<List<SosReport>> streamCurrentUserReports(String userId) {
-    return _client
-        .from('reports')
-        .stream(primaryKey: ['id'])
-        .eq('source', 'citizen_mobile')
-        .order('created_at', ascending: false)
-        .map((rows) =>
-            rows.map((e) => SosReport.fromMap(Map<String, dynamic>.from(e))).toList());
+    // Use backend API instead of direct Supabase table stream because auth is
+    // currently handled by backend OTP and may not create a Supabase session.
+    return Stream.periodic(const Duration(seconds: 5)).asyncMap((_) async {
+      final list = await _api.getList('/reports', query: {'limit': 100});
+      final reports = list
+          .map((e) => SosReport.fromMap(Map<String, dynamic>.from(e as Map)))
+          .where(
+            (r) =>
+                (r.description ?? '').contains('user=$userId') &&
+                (r.description ?? '').contains('people_count='),
+          )
+          .toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return reports;
+    });
   }
 
   Future<SosReport> createSosReport({
@@ -97,19 +214,18 @@ class EmergencyRepository {
     required int peopleCount,
     required String injuryStatus,
   }) async {
-    final row = await _client
-        .from('reports')
-        .insert({
-          'source': 'citizen_mobile',
-          'event_id': disasterId,
-          'latitude': latitude,
-          'longitude': longitude,
-          'description': 'people_count=$peopleCount;injury_status=$injuryStatus;user=$userId',
-        })
-        .select()
-        .single();
+    final row = await _api.postJson(
+      '/reports',
+      body: {
+        'source': 'citizen_mobile',
+        'event_id': disasterId,
+        'latitude': latitude,
+        'longitude': longitude,
+        'description': 'people_count=$peopleCount;injury_status=$injuryStatus;user=$userId',
+      },
+    );
 
-    return SosReport.fromMap(Map<String, dynamic>.from(row as Map));
+    return SosReport.fromMap(row);
   }
 
   Future<CitizenReport> createCitizenReport({
@@ -119,19 +235,18 @@ class EmergencyRepository {
     required String description,
     String? eventId,
   }) async {
-    final row = await _client
-        .from('reports')
-        .insert({
-          'source': source,
-          'event_id': eventId,
-          'latitude': latitude,
-          'longitude': longitude,
-          'description': description,
-        })
-        .select()
-        .single();
+    final row = await _api.postJson(
+      '/reports',
+      body: {
+        'source': source,
+        'event_id': eventId,
+        'latitude': latitude,
+        'longitude': longitude,
+        'description': description,
+      },
+    );
 
-    return CitizenReport.fromMap(Map<String, dynamic>.from(row as Map));
+    return CitizenReport.fromMap(row);
   }
 
   Future<void> markRescueUnitBusy(String unitId) async {

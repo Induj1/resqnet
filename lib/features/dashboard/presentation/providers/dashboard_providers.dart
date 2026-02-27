@@ -1,4 +1,4 @@
-﻿import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../../../../core/utils/geo_math.dart';
@@ -6,6 +6,7 @@ import '../../../../models/citizen_report.dart';
 import '../../../../models/disaster_event.dart';
 import '../../../../models/grid_risk_point.dart';
 import '../../../../models/rescue_unit.dart';
+import '../../../../models/social_feed_item.dart';
 import '../../../../models/sos_report.dart';
 import '../../../../services/emergency_repository.dart';
 import '../../../../services/location_service.dart';
@@ -17,6 +18,24 @@ final currentPositionProvider = FutureProvider<Position>((ref) async {
 
 final disasterEventsProvider = StreamProvider<List<DisasterEvent>>((ref) {
   return ref.read(emergencyRepositoryProvider).streamDisasterEvents();
+});
+
+/// Mobile-app home feed: use this instead of `/events/nearby`.
+final socialFeedProvider = StreamProvider<List<SocialFeedItem>>((ref) {
+  final pos = ref.watch(currentPositionProvider).valueOrNull;
+  if (pos == null) return const Stream.empty();
+  return ref.read(emergencyRepositoryProvider).streamSocialFeed(
+        latitude: pos.latitude,
+        longitude: pos.longitude,
+        radiusKm: 10,
+      );
+});
+
+final nearestSocialFeedItemProvider = Provider<SocialFeedItem?>((ref) {
+  final items = ref.watch(socialFeedProvider).valueOrNull;
+  if (items == null || items.isEmpty) return null;
+  final sorted = [...items]..sort((a, b) => a.distanceKm.compareTo(b.distanceKm));
+  return sorted.first;
 });
 
 final rescueUnitsProvider = StreamProvider<List<RescueUnit>>((ref) {
